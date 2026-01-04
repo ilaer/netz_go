@@ -1,0 +1,87 @@
+package src
+
+import (
+	"fmt"
+	"io/ioutil"
+	"os"
+
+	"github.com/andlabs/ui"
+	_ "github.com/andlabs/ui/winmanifest"
+)
+
+func (m *SRC) GUI() {
+	mainwin := ui.NewWindow("发现服务工具", 900, 600, false)
+	mainwin.OnClosing(func(*ui.Window) bool {
+		ui.Quit()
+		return true
+	})
+
+	// 设置窗口图标（仅Windows，andlabs/ui 需winmanifest支持）
+	// 需在go build时加上资源文件，或用winmanifest自动加载icon.ico
+	// 这里假设icon.ico已放在根目录，并已通过winmanifest嵌入
+
+	// 输入区
+	networkLabel := ui.NewLabel("  网段:")
+	networkEntry := ui.NewEntry()
+	networkEntry.SetText(m.Segment)
+	portLabel := ui.NewLabel("端口:")
+	portEntry := ui.NewEntry()
+	portEntry.SetText(m.Ports)
+	scanBtn := ui.NewButton("开始扫描")
+
+	// 输入区布局
+	inputBox := ui.NewHorizontalBox()
+	inputBox.Append(networkLabel, false)
+	inputBox.Append(ui.NewLabel("    "), false) // 间隔
+	inputBox.Append(networkEntry, false)
+	inputBox.Append(ui.NewLabel("    "), false) // 间隔
+	inputBox.Append(portLabel, false)
+	inputBox.Append(ui.NewLabel("    "), false) // 间隔
+	inputBox.Append(portEntry, false)
+	inputBox.Append(ui.NewLabel(""), true)
+	inputBox.Append(scanBtn, false)
+	inputBox.Append(ui.NewLabel(""), true) // 占位拉伸
+
+	// 结果区 多行文本框
+	m.MultiTextEntry = ui.NewMultilineEntry()
+	m.MultiTextEntry.SetReadOnly(true)
+
+	// 表头说明
+	headBox := ui.NewHorizontalBox()
+	headBox.Append(ui.NewLabel(" 滚动日志"), false)
+
+	// 总体布局
+	vbox := ui.NewVerticalBox()
+	vbox.Append(inputBox, false)
+	vbox.Append(headBox, false)
+	vbox.Append(m.MultiTextEntry, true)
+	mainwin.SetChild(vbox)
+
+	scanBtn.OnClicked(func(*ui.Button) {
+		scanBtn.Disable()
+		m.MultiTextEntry.SetText(fmt.Sprintf("开始扫描 %s 网段", networkEntry.Text()))
+		go func() {
+			m.GuiLogChannel <- "启动成功!"
+			network := networkEntry.Text()
+			portStr := portEntry.Text()
+			m.UpdateConfig(map[string]interface{}{"segment": network, "ports": portStr})
+			results := m.Seek(network, portStr)
+			var text string
+			for _, r := range results {
+				m.GuiLogChannel <- r.(string)
+			}
+			ioutil.WriteFile("result.txt", []byte(text), os.ModePerm)
+			ui.QueueMain(func() {
+
+				scanBtn.Enable()
+			})
+		}()
+	})
+
+	mainwin.Show()
+
+}
+func (m *SRC) CreateMainWindow() error {
+	ui.Main(m.GUI)
+	return nil
+}
